@@ -19,10 +19,13 @@ public interface FileRepository extends JpaRepository<FileEntity, UUID> {
     @Query("SELECT f FROM FileEntity f WHERE f.expiresAt < :now AND f.status <> 'DELETED'")
     List<FileEntity> findExpired(@Param("now") Instant now);
 
-    /** Atomically increment uploadedChunks and return the new count. Used when a chunk lands. */
+    /** Atomically increment uploadedChunks. Used when a chunk lands. */
     @Modifying
     @Query("UPDATE FileEntity f SET f.uploadedChunks = f.uploadedChunks + 1 WHERE f.id = :id")
     void incrementUploadedChunks(@Param("id") UUID id);
 
     Optional<FileEntity> findByIdAndStatusNot(UUID id, FileEntity.Status status);
+
+    /** Phase 2 purge job: find soft-deleted rows old enough to hard-delete. */
+    List<FileEntity> findByStatusAndUpdatedAtBefore(FileEntity.Status status, Instant before);
 }

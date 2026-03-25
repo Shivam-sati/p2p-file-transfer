@@ -13,10 +13,11 @@ import com.filetransfer.repository.ShareCodeRepository;
 import com.filetransfer.repository.TransferSessionRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -26,7 +27,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,7 +35,7 @@ import java.util.UUID;
 @Slf4j
 public class ShareService {
 
-    private static final String ALPHANUM = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"; // no lookalike chars
+    private static final String ALPHANUM    = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"; // no lookalike chars
     private static final int    STREAM_BUFFER = 64 * 1024; // 64 KB read buffer for downloads
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -43,6 +43,10 @@ public class ShareService {
     private final FileRepository            fileRepository;
     private final TransferSessionRepository sessionRepository;
     private final AppProperties             props;
+
+    // Injected from SecurityConfig — BCryptPasswordEncoder(strength=12)
+    // Only spring-security-crypto is on the classpath; full Spring Security is NOT enabled.
+    private final PasswordEncoder           passwordEncoder;
 
     /**
      * Generate a short alphanumeric code that links to a ready file.
@@ -74,9 +78,10 @@ public class ShareService {
         }
 
         if (req != null && req.getPassword() != null && !req.getPassword().isBlank()) {
-            // In production replace with BCrypt — kept simple here to avoid extra dependency
             share.setPasswordProtected(true);
-            share.setPasswordHash(hashPassword(req.getPassword()));
+            // BCrypt hash — strength 12, ~400 ms per hash, safe for occasional use.
+            // The raw password is never stored.
+            share.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         }
 
         ShareCodeEntity saved = shareCodeRepository.save(share);
@@ -96,6 +101,25 @@ public class ShareService {
             throw new InvalidShareCodeException("Share code is expired or download limit reached");
         }
         return share;
+    }
+
+    /**
+     * Verify a password against a password-protected share code.
+     *
+     * Uses BCrypt's constant-time comparison via PasswordEncoder.matches()
+     * to prevent timing attacks. Always call this before streamFile() when
+     * share.isPasswordProtected() is true.
+     *
+     * @throws InvalidShareCodeException if the password does not match
+     */
+    public void verifyPassword(ShareCodeEntity share, String rawPassword) {
+        if (!share.isPasswordProtected()) return;
+
+        if (rawPassword == null || rawPassword.isBlank()
+                || !passwordEncoder.matches(rawPassword, share.getPasswordHash())) {
+            // Intentionally vague message — don't leak whether code vs password is wrong
+            throw new InvalidShareCodeException("Invalid share code or password");
+        }
     }
 
     /**
@@ -143,11 +167,11 @@ public class ShareService {
         long contentLength = endByte - startByte + 1;
 
         // ── Set response headers ─────────────────────────────────────────────
-        response.setHeader("Content-Type",        Optional.ofNullable(file.getMimeType()).orElse("application/octet-stream"));
-        response.setHeader("Content-Length",       String.valueOf(contentLength));
-        response.setHeader("Accept-Ranges",        "bytes");
-        response.setHeader("Content-Disposition",  "attachment; filename=\"" + file.getOriginalName() + "\"");
-        response.setHeader("Cache-Control",        "no-store");
+        response.setHeader("Content-Type",       Optional.ofNullable(file.getMimeType()).orElse("application/octet-stream"));
+        response.setHeader("Content-Length",      String.valueOf(contentLength));
+        response.setHeader("Accept-Ranges",       "bytes");
+        response.setHeader("Content-Disposition", "attachment; filename=\"" + file.getOriginalName() + "\"");
+        response.setHeader("Cache-Control",       "no-store");
 
         if (isPartial) {
             response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
@@ -175,8 +199,8 @@ public class ShareService {
                 int read   = raf.read(buf, 0, toRead);
                 if (read == -1) break;
                 out.write(buf, 0, read);
-                remaining    -= read;
-                transferred  += read;
+                remaining   -= read;
+                transferred += read;
             }
 
             out.flush();
@@ -231,13 +255,5 @@ public class ShareService {
         } catch (Exception e) {
             log.warn("Could not finalise session {}: {}", session.getId(), e.getMessage());
         }
-    }
-
-    private String hashPassword(String password) {
-        // TODO Phase 2: replace with BCryptPasswordEncoder
-        // Using Base64 here only as a placeholder — not secure for production
-        return Base64.getEncoder().encodeToString(
-            (password + "SALT_REPLACE_ME").getBytes()
-        );
     }
 }

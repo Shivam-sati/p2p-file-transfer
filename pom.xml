@@ -61,6 +61,15 @@
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
+        <!-- BCrypt password hashing for share-code passwords.
+             We only need the crypto module — NOT the full Spring Security stack.
+             spring-security-crypto has no auto-configuration and won't enable
+             any security filters or login pages. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
         <!-- Lombok — reduces boilerplate -->
         <dependency>
             <groupId>org.projectlombok</groupId>
