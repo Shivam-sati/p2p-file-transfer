@@ -28,6 +28,10 @@ spring:
       enabled: true
       max-file-size: 10MB        # Per chunk — individual chunk ceiling
       max-request-size: 11MB
+  
+    websocket:
+    message-size-limit: 65536
+    send-buffer-size-limit: 524288
 
 app:
   storage:
@@ -49,3 +53,10 @@ logging:
   level:
     com.filetransfer: DEBUG
     org.springframework.web: INFO
+
+p2p:
+    enabled: true
+    peer-join-timeout-seconds: 30
+    ice-servers:
+      - urls: stun:stun.l.google.com:19302
+      - urls: stun:stun1.l.google.com:19302
