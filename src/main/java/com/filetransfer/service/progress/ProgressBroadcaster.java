@@ -148,9 +148,11 @@ public class ProgressBroadcaster {
 
     private void broadcast(UUID fileId, ProgressEvent event) {
         messagingTemplate.convertAndSend("/topic/progress/" + fileId, event);
-        log.debug("Progress: fileId={} {}% dir={} speed={:.0f}bps",
-                fileId, String.format("%.1f", event.getPercentComplete()),
-                event.getDirection(), event.getSpeedBps());
+        log.debug("Progress: fileId={} {}% dir={} speed={}bps",
+                fileId,
+                String.format("%.1f", event.getPercentComplete()),
+                event.getDirection(),
+                String.format("%.0f", event.getSpeedBps()));
     }
 
     private double percent(long done, long total) {
