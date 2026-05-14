@@ -20,137 +20,97 @@ import java.util.Map;
 @Slf4j
 public class AnalyticsService {
 
-    private final TransferAnalyticsRepository analyticsRepository;
+        private final TransferAnalyticsRepository analyticsRepository;
 
-    // ── Event recording ───────────────────────────────────────────────────────
+        @Transactional
+        public void recordEvent(
+                        TransferSessionEntity session,
+                        TransferAnalyticsEntity.EventType type,
+                        long bytesAtEvent,
+                        Double speedBps,
+                        TransferAnalyticsEntity.Mode mode) {
 
-    /**
-     * Records a single analytics event.
-     * Called from services after significant transfer state changes.
-     *
-     * @param session      the transfer session this event belongs to (can be null)
-     * @param type         event type enum
-     * @param bytesAtEvent cumulative bytes transferred at the time of this event
-     * @param speedBps     current transfer speed in bytes/sec (can be null)
-     * @param mode         SERVER or P2P (can be null for non-transfer events)
-     */
-    @Transactional
-    public void recordEvent(
-            TransferSessionEntity session,
-            TransferAnalyticsEntity.EventType type,
-            long bytesAtEvent,
-            Double speedBps,
-            TransferAnalyticsEntity.Mode mode) {
+                TransferAnalyticsEntity event = new TransferAnalyticsEntity();
+                event.setSession(session);
+                event.setEventType(type);
+                event.setBytesAtEvent(bytesAtEvent);
+                event.setSpeedBps(speedBps);
+                event.setTransferMode(mode);
+                analyticsRepository.save(event);
 
-        TransferAnalyticsEntity event = new TransferAnalyticsEntity();
-        event.setSession(session);
-        event.setEventType(type);
-        event.setBytesAtEvent(bytesAtEvent);
-        event.setSpeedBps(speedBps);
-        event.setTransferMode(mode);
-
-        analyticsRepository.save(event);
-        log.debug("Analytics event recorded: type={} bytes={} speed={}",
-                type, bytesAtEvent, speedBps);
-    }
-
-    /**
-     * Convenience method for recording error events with an error code.
-     */
-    @Transactional
-    public void recordError(
-            TransferSessionEntity session,
-            TransferAnalyticsEntity.EventType type,
-            String errorCode) {
-
-        TransferAnalyticsEntity event = new TransferAnalyticsEntity();
-        event.setSession(session);
-        event.setEventType(type);
-        event.setBytesAtEvent(0);
-        event.setErrorCode(errorCode);
-
-        analyticsRepository.save(event);
-        log.debug("Analytics error recorded: type={} errorCode={}", type, errorCode);
-    }
-
-    // ── Dashboard aggregation ─────────────────────────────────────────────────
-
-    /**
-     * Builds the full dashboard stats object for a given time window.
-     * All queries run against the BRIN-indexed recorded_at column so
-     * they stay fast even with millions of rows.
-     */
-    public AnalyticsDashboardResponse getDashboardStats(Instant from, Instant to) {
-        // Transfer counts
-        long totalUploads = analyticsRepository.countByEventTypeSince(
-                TransferAnalyticsEntity.EventType.UPLOAD_COMPLETE, from);
-        long totalDownloads = analyticsRepository.countByEventTypeSince(
-                TransferAnalyticsEntity.EventType.DOWNLOAD_COMPLETE, from);
-        long failedUploads = analyticsRepository.countByEventTypeSince(
-                TransferAnalyticsEntity.EventType.UPLOAD_FAILED, from);
-        long failedDownloads = analyticsRepository.countByEventTypeSince(
-                TransferAnalyticsEntity.EventType.DOWNLOAD_FAILED, from);
-
-        // P2P counts
-        long p2pConnections = analyticsRepository.countByEventTypeSince(
-                TransferAnalyticsEntity.EventType.P2P_CONNECTED, from);
-        long p2pFallbacks = analyticsRepository.countByEventTypeSince(
-                TransferAnalyticsEntity.EventType.P2P_FALLBACK, from);
-
-        double p2pSuccessRate = 0.0;
-        long totalP2PAttempts = p2pConnections + p2pFallbacks;
-        if (totalP2PAttempts > 0) {
-            p2pSuccessRate = (p2pConnections * 100.0) / totalP2PAttempts;
+                log.debug("Analytics event: type={} bytes={}", type, bytesAtEvent);
         }
 
-        // Speed metrics
-        Double avgSpeed = analyticsRepository.avgSpeedSince(from);
-        Double peakSpeed = analyticsRepository.peakSpeedSince(from);
-        double avgBps = avgSpeed != null ? avgSpeed : 0.0;
-        double peakBps = peakSpeed != null ? peakSpeed : 0.0;
+        @Transactional
+        public void recordError(
+                        TransferSessionEntity session,
+                        TransferAnalyticsEntity.EventType type,
+                        String errorCode) {
 
-        // Byte totals
-        long bytesUploaded = analyticsRepository.sumBytesUploadedSince(from);
-        long bytesDownloaded = analyticsRepository.sumBytesDownloadedSince(from);
-
-        // Mode breakdown
-        List<Object[]> modeRows = analyticsRepository.countByModeSince(from);
-        Map<String, Long> transfersByMode = new HashMap<>();
-        for (Object[] row : modeRows) {
-            String modeName = row[0] != null ? row[0].toString() : "UNKNOWN";
-            Long count = (Long) row[1];
-            transfersByMode.put(modeName, count);
+                TransferAnalyticsEntity event = new TransferAnalyticsEntity();
+                event.setSession(session);
+                event.setEventType(type);
+                event.setBytesAtEvent(0);
+                event.setErrorCode(errorCode);
+                analyticsRepository.save(event);
         }
 
-        return AnalyticsDashboardResponse.builder()
-                .totalUploads(totalUploads)
-                .totalDownloads(totalDownloads)
-                .failedUploads(failedUploads)
-                .failedDownloads(failedDownloads)
-                .p2pConnections(p2pConnections)
-                .p2pFallbacks(p2pFallbacks)
-                .p2pSuccessRatePercent(p2pSuccessRate)
-                .avgSpeedBps(avgBps)
-                .avgSpeedMbps(avgBps / 1_000_000.0)
-                .peakSpeedBps(peakBps)
-                .totalBytesUploaded(bytesUploaded)
-                .totalBytesDownloaded(bytesDownloaded)
-                .transfersByMode(transfersByMode)
-                .periodFrom(from)
-                .periodTo(to)
-                .build();
-    }
+        public AnalyticsDashboardResponse getDashboardStats(Instant from, Instant to) {
 
-    // ── Event log ─────────────────────────────────────────────────────────────
+                // Pass enum name as String — the repo does CAST(:eventType AS
+                // analytics_event_type)
+                long totalUploads = analyticsRepository.countByEventTypeSince("UPLOAD_COMPLETE", from);
+                long totalDownloads = analyticsRepository.countByEventTypeSince("DOWNLOAD_COMPLETE", from);
+                long failedUploads = analyticsRepository.countByEventTypeSince("UPLOAD_FAILED", from);
+                long failedDownloads = analyticsRepository.countByEventTypeSince("DOWNLOAD_FAILED", from);
+                long p2pConnections = analyticsRepository.countByEventTypeSince("P2P_CONNECTED", from);
+                long p2pFallbacks = analyticsRepository.countByEventTypeSince("P2P_FALLBACK", from);
 
-    /**
-     * Returns a list of individual analytics events within a time range.
-     * Used for the detailed event log table in the dashboard.
-     */
-    public List<AnalyticsEventResponse> getEventLog(Instant from, Instant to) {
-        return analyticsRepository.findByTimeRange(from, to)
-                .stream()
-                .map(AnalyticsEventResponse::from)
-                .toList();
-    }
+                double p2pSuccessRate = 0.0;
+                long totalP2PAttempts = p2pConnections + p2pFallbacks;
+                if (totalP2PAttempts > 0) {
+                        p2pSuccessRate = (p2pConnections * 100.0) / totalP2PAttempts;
+                }
+
+                Double avgSpeed = analyticsRepository.avgSpeedSince(from);
+                Double peakSpeed = analyticsRepository.peakSpeedSince(from);
+                double avgBps = avgSpeed != null ? avgSpeed : 0.0;
+                double peakBps = peakSpeed != null ? peakSpeed : 0.0;
+
+                long bytesUploaded = analyticsRepository.sumBytesUploadedSince(from);
+                long bytesDownloaded = analyticsRepository.sumBytesDownloadedSince(from);
+
+                List<Object[]> modeRows = analyticsRepository.countByModeSince(from);
+                Map<String, Long> transfersByMode = new HashMap<>();
+                for (Object[] row : modeRows) {
+                        String modeName = row[0] != null ? row[0].toString() : "UNKNOWN";
+                        Long count = (Long) row[1];
+                        transfersByMode.put(modeName, count);
+                }
+
+                return AnalyticsDashboardResponse.builder()
+                                .totalUploads(totalUploads)
+                                .totalDownloads(totalDownloads)
+                                .failedUploads(failedUploads)
+                                .failedDownloads(failedDownloads)
+                                .p2pConnections(p2pConnections)
+                                .p2pFallbacks(p2pFallbacks)
+                                .p2pSuccessRatePercent(p2pSuccessRate)
+                                .avgSpeedBps(avgBps)
+                                .avgSpeedMbps(avgBps / 1_000_000.0)
+                                .peakSpeedBps(peakBps)
+                                .totalBytesUploaded(bytesUploaded)
+                                .totalBytesDownloaded(bytesDownloaded)
+                                .transfersByMode(transfersByMode)
+                                .periodFrom(from)
+                                .periodTo(to)
+                                .build();
+        }
+
+        public List<AnalyticsEventResponse> getEventLog(Instant from, Instant to) {
+                return analyticsRepository.findByTimeRange(from, to)
+                                .stream()
+                                .map(AnalyticsEventResponse::from)
+                                .toList();
+        }
 }

@@ -10,13 +10,13 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate          # Flyway owns the schema; Hibernate just validates
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         jdbc:
-          batch_size: 50          # Batch inserts (useful for bulk chunk records)
+          batch_size: 50
           fetch_size: 100
 
   flyway:
@@ -26,37 +26,39 @@ spring:
   servlet:
     multipart:
       enabled: true
-      max-file-size: 10MB        # Per chunk — individual chunk ceiling
+      max-file-size: 10MB
       max-request-size: 11MB
-  
-    websocket:
+
+  # FIX 1: websocket must be under spring.websocket, not spring.servlet.websocket
+  websocket:
     message-size-limit: 65536
     send-buffer-size-limit: 524288
 
 app:
   storage:
-    base-path: C:/filetransfer   # Override via env var in prod
+    base-path: C:/filetransfer
     chunk-dir: chunks
     file-dir: files
   upload:
-    chunk-size-bytes: 5242880     # 5 MB per chunk (tunable)
-    max-file-size-bytes: 10737418240   # 10 GB max file size
-    chunk-ttl-hours: 24           # Orphaned chunks are cleaned after 24h
+    chunk-size-bytes: 5242880
+    max-file-size-bytes: 10737418240
+    chunk-ttl-hours: 24
   share:
     default-expiry-hours: 72
     code-length: 8
   async:
-    merge-pool-size: 4            # Threads available for concurrent merge operations
+    merge-pool-size: 4
     chunk-pool-size: 8
 
-logging:
-  level:
-    com.filetransfer: DEBUG
-    org.springframework.web: INFO
-
-p2p:
+  # FIX 2: p2p must be under app.p2p, not at root level
+  p2p:
     enabled: true
     peer-join-timeout-seconds: 30
     ice-servers:
       - urls: stun:stun.l.google.com:19302
       - urls: stun:stun1.l.google.com:19302
+
+logging:
+  level:
+    com.filetransfer: DEBUG
+    org.springframework.web: INFO
