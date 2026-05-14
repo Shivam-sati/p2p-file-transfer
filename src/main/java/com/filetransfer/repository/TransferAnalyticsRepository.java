@@ -11,10 +11,12 @@ import java.util.List;
 import java.util.UUID;
 
 @Repository
-public interface TransferAnalyticsRepository extends JpaRepository<TransferAnalyticsEntity, UUID> {
+public interface TransferAnalyticsRepository
+                extends JpaRepository<TransferAnalyticsEntity, UUID> {
 
         @Query("""
-                        SELECT a FROM TransferAnalyticsEntity a
+                        SELECT a
+                        FROM TransferAnalyticsEntity a
                         WHERE a.recordedAt BETWEEN :from AND :to
                         ORDER BY a.recordedAt DESC
                         """)
@@ -22,29 +24,33 @@ public interface TransferAnalyticsRepository extends JpaRepository<TransferAnaly
                         @Param("from") Instant from,
                         @Param("to") Instant to);
 
-        @Query(value = """
-                        SELECT COUNT(*)
-                        FROM transfer_analytics
-                        WHERE event_type = CAST(:eventType AS analytics_event_type)
-                        AND recorded_at > :since
-                        """, nativeQuery = true)
+        @Query("""
+                        SELECT COUNT(a)
+                        FROM TransferAnalyticsEntity a
+                        WHERE a.eventType = :type
+                        AND a.recordedAt > :since
+                        """)
         long countByEventTypeSince(
-                        @Param("eventType") String eventType,
+                        @Param("type") TransferAnalyticsEntity.EventType type,
                         @Param("since") Instant since);
 
         @Query("""
-                        SELECT AVG(a.speedBps) FROM TransferAnalyticsEntity a
+                        SELECT AVG(a.speedBps)
+                        FROM TransferAnalyticsEntity a
                         WHERE a.speedBps IS NOT NULL
                         AND a.recordedAt > :since
                         """)
-        Double avgSpeedSince(@Param("since") Instant since);
+        Double avgSpeedSince(
+                        @Param("since") Instant since);
 
         @Query("""
-                        SELECT MAX(a.speedBps) FROM TransferAnalyticsEntity a
+                        SELECT MAX(a.speedBps)
+                        FROM TransferAnalyticsEntity a
                         WHERE a.speedBps IS NOT NULL
                         AND a.recordedAt > :since
                         """)
-        Double peakSpeedSince(@Param("since") Instant since);
+        Double peakSpeedSince(
+                        @Param("since") Instant since);
 
         @Query("""
                         SELECT a.transferMode, COUNT(a)
@@ -53,21 +59,17 @@ public interface TransferAnalyticsRepository extends JpaRepository<TransferAnaly
                         AND a.transferMode IS NOT NULL
                         GROUP BY a.transferMode
                         """)
-        List<Object[]> countByModeSince(@Param("since") Instant since);
+        List<Object[]> countByModeSince(
+                        @Param("since") Instant since);
 
-        @Query(value = """
-                        SELECT COALESCE(SUM(bytes_at_event), 0)
-                        FROM transfer_analytics
-                        WHERE event_type = CAST('UPLOAD_COMPLETE' AS analytics_event_type)
-                        AND recorded_at > :since
-                        """, nativeQuery = true)
-        long sumBytesUploadedSince(@Param("since") Instant since);
+        @Query("""
+                        SELECT COALESCE(SUM(a.bytesAtEvent), 0)
+                        FROM TransferAnalyticsEntity a
+                        WHERE a.eventType = :eventType
+                        AND a.recordedAt > :since
+                        """)
+        long sumBytesSince(
+                        @Param("eventType") TransferAnalyticsEntity.EventType eventType,
 
-        @Query(value = """
-                        SELECT COALESCE(SUM(bytes_at_event), 0)
-                        FROM transfer_analytics
-                        WHERE event_type = CAST('DOWNLOAD_COMPLETE' AS analytics_event_type)
-                        AND recorded_at > :since
-                        """, nativeQuery = true)
-        long sumBytesDownloadedSince(@Param("since") Instant since);
+                        @Param("since") Instant since);
 }
