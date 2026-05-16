@@ -3,10 +3,13 @@ package com.filetransfer.service;
 import com.filetransfer.config.AppConfig.AppProperties;
 import com.filetransfer.dto.request.FileInitRequest;
 import com.filetransfer.entity.FileEntity;
+import com.filetransfer.entity.TransferAnalyticsEntity;
+import com.filetransfer.entity.TransferSessionEntity;
 import com.filetransfer.exception.FileNotFoundException;
 import com.filetransfer.exception.InvalidFileStateException;
 import com.filetransfer.repository.ChunkRepository;
 import com.filetransfer.repository.FileRepository;
+import com.filetransfer.repository.TransferSessionRepository;
 import com.filetransfer.util.StorageUtil;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -22,10 +25,12 @@ import java.util.UUID;
 @Slf4j
 public class FileService {
 
-    private final FileRepository    fileRepository;
-    private final ChunkRepository   chunkRepository;
-    private final AppProperties     props;
-    private final Path              storagePath;
+    private final FileRepository fileRepository;
+    private final ChunkRepository chunkRepository;
+    private final AppProperties props;
+    private final Path storagePath;
+    private final AnalyticsService analyticsService;
+    private final TransferSessionRepository transferSessionRepository;
 
     /**
      * Initialise a new upload session.
@@ -52,7 +57,22 @@ public class FileService {
 
         FileEntity saved = fileRepository.save(file);
         log.info("Upload initialised: fileId={} name='{}' size={} chunks={}",
-            saved.getId(), req.getOriginalName(), req.getFileSize(), req.getTotalChunks());
+                saved.getId(), req.getOriginalName(), req.getFileSize(), req.getTotalChunks());
+
+        // ADD THIS: Create session and track upload start
+        TransferSessionEntity session = new TransferSessionEntity();
+        session.setFile(saved);
+        session.setSessionType(TransferSessionEntity.Type.SERVER);
+        session.setDirection(TransferSessionEntity.Direction.UPLOAD);
+        session.setClientIp(uploaderIp);
+        session = transferSessionRepository.save(session);
+
+        analyticsService.recordEvent(
+                session,
+                TransferAnalyticsEntity.EventType.UPLOAD_START,
+                0L,
+                null,
+                TransferAnalyticsEntity.Mode.SERVER);
 
         return saved;
     }
@@ -62,12 +82,13 @@ public class FileService {
      */
     public FileEntity getFile(UUID fileId) {
         return fileRepository.findByIdAndStatusNot(fileId, FileEntity.Status.DELETED)
-            .orElseThrow(() -> new FileNotFoundException(fileId));
+                .orElseThrow(() -> new FileNotFoundException(fileId));
     }
 
     /**
      * Soft-delete a file — marks status DELETED, then schedules physical cleanup.
-     * Physical deletion is handled by a separate scheduled task so this call is fast.
+     * Physical deletion is handled by a separate scheduled task so this call is
+     * fast.
      */
     @Transactional
     public void deleteFile(UUID fileId) {
@@ -86,10 +107,11 @@ public class FileService {
     // ── private ──────────────────────────────────────────────────────────────
 
     private void validateFileSize(long fileSize) {
-        if (fileSize <= 0) throw new IllegalArgumentException("fileSize must be positive");
+        if (fileSize <= 0)
+            throw new IllegalArgumentException("fileSize must be positive");
         if (fileSize > props.maxFileSizeBytes()) {
             throw new IllegalArgumentException(
-                "File size " + fileSize + " exceeds limit of " + props.maxFileSizeBytes());
+                    "File size " + fileSize + " exceeds limit of " + props.maxFileSizeBytes());
         }
     }
 

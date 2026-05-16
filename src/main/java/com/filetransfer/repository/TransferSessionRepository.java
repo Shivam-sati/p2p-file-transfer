@@ -1,5 +1,6 @@
 package com.filetransfer.repository;
 
+import com.filetransfer.entity.FileEntity;
 import com.filetransfer.entity.TransferSessionEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
@@ -14,4 +15,7 @@ public interface TransferSessionRepository extends JpaRepository<TransferSession
             UUID fileId,
             String peerId,
             TransferSessionEntity.Status status);
+
+    Optional<TransferSessionEntity> findByFileAndDirection(FileEntity file, TransferSessionEntity.Direction direction);
+
 }

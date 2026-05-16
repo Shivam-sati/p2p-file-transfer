@@ -2,10 +2,12 @@ package com.filetransfer.service;
 
 import com.filetransfer.entity.FileChunkEntity;
 import com.filetransfer.entity.FileEntity;
+import com.filetransfer.entity.TransferSessionEntity;
 import com.filetransfer.exception.ChunkMissingException;
 import com.filetransfer.exception.InvalidFileStateException;
 import com.filetransfer.repository.ChunkRepository;
 import com.filetransfer.repository.FileRepository;
+import com.filetransfer.repository.TransferSessionRepository;
 import com.filetransfer.service.progress.ProgressBroadcaster;
 import com.filetransfer.util.ChecksumUtil;
 import com.filetransfer.util.StorageUtil;
@@ -48,6 +50,8 @@ public class MergeService {
     private final ChunkRepository chunkRepository;
     private final Path storagePath;
     private final ProgressBroadcaster progressBroadcaster;
+    private final AnalyticsService analyticsService;
+    private final TransferSessionRepository transferSessionRepository;
 
     /**
      * Called by controller when the client requests merge.
@@ -252,6 +256,16 @@ public class MergeService {
         chunkRepository.markAllMergedByFileId(file.getId());
 
         log.info("File marked READY for fileId={}", file.getId());
+
+        TransferSessionEntity session = transferSessionRepository
+                .findByFileAndDirection(file, TransferSessionEntity.Direction.UPLOAD)
+                .orElseGet(() -> {
+                    TransferSessionEntity newSession = new TransferSessionEntity();
+                    newSession.setFile(file); // Pass the FileEntity object
+                    newSession.setSessionType(TransferSessionEntity.Type.SERVER);
+                    newSession.setDirection(TransferSessionEntity.Direction.UPLOAD);
+                    return transferSessionRepository.save(newSession);
+                });
     }
 
     /**
